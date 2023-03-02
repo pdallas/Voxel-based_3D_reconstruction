@@ -161,54 +161,62 @@ def background_sub(camera_num):
 
         fg = np.abs(cv.subtract(bg_static, current_frame))
 
-        ret0, th0 = cv.threshold(fg, 80, 255, cv.THRESH_BINARY)
+        # Split the forground into three channels H, S, V
+        h, s, v = cv.split(fg)
 
-        h, s, v = cv.split(th0)
-
+        # Apply Gaussian blur for noise reduction
         blur_v = cv.GaussianBlur(v, (5, 5), 0)
         blur_s = cv.GaussianBlur(s, (5, 5), 0)
         blur_h = cv.GaussianBlur(h, (5, 5), 0)
 
-
         # Threshold OTSU
-        ret1, th_v = cv.threshold(blur_v, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-        ret1, th_s = cv.threshold(blur_s, 0, 0, cv.THRESH_BINARY + cv.THRESH_OTSU)
-        ret1, th_h = cv.threshold(blur_h, 0, 0, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        retv, th_v = cv.threshold(blur_v, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        rets, th_s = cv.threshold(blur_s, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        reth, th_h = cv.threshold(blur_h, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
         # Adaptive mean thresholding
         # th_v = cv.adaptiveThreshold(blur_v, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
-        # th_s = cv.adaptiveThreshold(blur_s, 0, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
-        # th_h = cv.adaptiveThreshold(blur_h, 0, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_s = cv.adaptiveThreshold(blur_s, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_h = cv.adaptiveThreshold(blur_h, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
 
         #Adaptive gaussian thresholding
         # th_v = cv.adaptiveThreshold(blur_v, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
-        # th_s = cv.adaptiveThreshold(blur_s, 0, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
-        # th_h = cv.adaptiveThreshold(blur_h, 0, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_s = cv.adaptiveThreshold(blur_s, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_h = cv.adaptiveThreshold(blur_h, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
 
-
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+        # Channel V
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (4, 4))
         morph_v = cv.morphologyEx(th_v, cv.MORPH_OPEN, kernel)
-
-        morph_v = cv.dilate(morph_v, kernel, iterations=3)
+        morph_v = cv.dilate(morph_v, kernel, iterations=5)
         result_v = cv.bitwise_and(morph_v, morph_v, mask=th_v)
 
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-        morph_s = cv.morphologyEx(th_s, cv.MORPH_OPEN, kernel)
 
-        morph_s = cv.dilate(morph_s, kernel, iterations=3)
-        result_s = cv.bitwise_and(morph_s, morph_s, mask=th_s)
-
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+        # Channel H
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (6, 6))
         morph_h = cv.morphologyEx(th_h, cv.MORPH_OPEN, kernel)
-
-        morph_h = cv.dilate(morph_h, kernel, iterations=3)
+        morph_h = cv.dilate(morph_h, kernel, iterations=5)
         result_h = cv.bitwise_and(morph_h, morph_h, mask=th_h)
 
-        rec_img_dilated = cv.merge([result_h, result_s, result_v])
-        bgr_img = cv.cvtColor(rec_img_dilated, cv.COLOR_HSV2BGR)
+        # Channel S
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (6, 6))
+        morph_s = cv.morphologyEx(th_s, cv.MORPH_OPEN, kernel)
+        morph_s = cv.dilate(morph_s, kernel, iterations=5)
+        result_s = cv.bitwise_and(morph_s, morph_s, mask=th_s)
 
-        cv.imshow('rec_img_dilated', rec_img_dilated)
-        cv.imshow('rec_img_BGR', bgr_img)
+        # Mask combination
+        fg_s_v = cv.bitwise_or(result_s, result_h)
+        fg_mask = cv.bitwise_or(result_v, fg_s_v)
+
+        res = cv.bitwise_and(frame, frame, mask=fg_mask)
+        cv.imwrite(f'./data/cam{camera_num}/forground.jpg', fg_mask)
+        cv.imwrite(f'./data/cam{camera_num}/horseman_frame.jpg', res)
+
+
+        #rec_img_dilated = cv.merge([result_h, result_s, result_v])
+        #bgr_img = cv.cvtColor(rec_img_dilated, cv.COLOR_HSV2BGR)
+
+        cv.imshow('Current frame with forground mask applied', res)
+        cv.imshow('Forground mask', fg_mask)
 
         k = cv.waitKey(30) & 0xff
         if k == 27:
