@@ -1,5 +1,6 @@
 import shutil
 
+from sklearn.mixture import GaussianMixture as GMM
 import cv2 as cv
 import numpy as np
 import os
@@ -27,26 +28,192 @@ imgpoints = []  # 2d points
 # Global var that controls the click event coordinates
 click_coordinates = []
 
+
+def extrinsics(cam_number):
+
+    data = np.load(f'./sub_pix.npy')
+    corners = np.array(data)
+
+    fs = cv.FileStorage('./data/cam1/intrinsics.xml', cv.FILE_STORAGE_READ)
+    mtx = fs.getNode('mtx').mat()
+    dist = fs.getNode('dist').mat()
+
+    objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2) * cube_stride
+
+    # extract the extrinsic parameters
+    ret, rvec, tvec = cv.solvePnP(objp, corners,mtx, dist)
+    # R, _ = cv.Rodrigues(rvec)  # change rotation vector to matrix
+    # T, _ = cv.Rodrigues(tvec)  # change translation vector to matrix
+
+    fs = cv.FileStorage('./data/cam1/config.xml', cv.FILE_STORAGE_WRITE)
+    fs.write("mtx", mtx)
+    fs.write("dist", dist)
+    fs.write("rvec", rvec)
+    fs.write("tvec", tvec)
+
+
+    img = cv.imread(f'./data/cam{cam_number}/board_0.jpg')
+    pts = np.float32([[0, 0, 0], [400, 0, 0], [0, 400, 0], [0, 0, 400]])
+    image_pts, _ = cv.projectPoints(pts, rvec, tvec, mtx, dist)
+
+    image_pts = np.int32(image_pts).reshape(-1, 2)
+
+    img = cv.line(img, tuple(image_pts[0]), tuple(image_pts[1]), (0, 0, 255), 2)
+    img = cv.line(img, tuple(image_pts[0]), tuple(image_pts[2]), (0, 255, 0), 2)
+    img = cv.line(img, tuple(image_pts[0]), tuple(image_pts[3]), (255, 0, 0), 2)
+    cv.imwrite(f'./data/cam{cam_number}/draw_axes.jpg', img)
+    cv.imshow('axes', img)
+    cv.waitKey(10000)
+    cv.destroyAllWindows()
+
+
 """
 The following function extracts a predefined amount of images from a video source
 """
 
 
-def extract_frames(cam_number, frames_to_extract):
+def extract_frames(cam_number, frames_to_extract, filename):
     count = 0
-    vid_cap = cv.VideoCapture(fr".\data\cam{cam_number}\intrinsics.avi")
+    vid_cap = cv.VideoCapture(fr".\data\cam{cam_number}\{filename}.avi")
 
-    if not os.path.exists(f'./data/cam{cam_number}/frames/frame_0.jpg'):
+    if os.path.exists(f'./data/cam{cam_number}/frames/frame_0.jpg'):
         print(f"Files not found, extracting images for camera {cam_number} ..")
         while count < frames_to_extract:
-            vid_cap.set(cv.CAP_PROP_POS_MSEC, (count * 5000))
+            vid_cap.set(cv.CAP_PROP_POS_MSEC, (count * 200))
             success, image = vid_cap.read()
             print('Read a new frame: ', success)
             if not os.path.exists(f'./data/cam{cam_number}/frames'):
                 os.mkdir(f'./data/cam{cam_number}/frames')
-            cv.imwrite('./data/cam' + str(cam_number) + '/frames/frame_' + str(count) + '.jpg', image)
+            cv.imwrite('./data/cam' + str(cam_number) + '/frames/background_' + str(count) + '.jpg', image)
             count = count + 1
     return True
+
+
+def manual_corners(cam_number):
+    images = glob.glob('./data/cam' + str(cam_number) + '/board_0.jpg')
+    for count, fname in enumerate(images):
+        img = cv.imread(fname)
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+
+        ret, corners = cv.findChessboardCorners(gray, chessboard, None)
+
+        if ret == True:
+            # Finding sub-pixel corners based on the original corners
+            corners_sub_pix = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            objpoints.append(objp)
+            imgpoints.append(corners_sub_pix)
+            cv.drawChessboardCorners(img, chessboard, corners_sub_pix, ret)
+            cv.imshow('img', img)
+            cv.waitKey(2000)
+        else:
+            # Corners not found, manually request corners
+            print(f'Did not find corners for file: {fname}')
+            cv.imshow('img', img)
+            cv.setMouseCallback('img', click_event, img)
+            cv.waitKey(0)
+
+    cv.destroyAllWindows()
+
+
+# TODO; Fix GMM model for the background frame selection
+def background_model(camera_num):
+    total_frames = 0
+    for count, frame in enumerate(glob.glob(f"./data/cam{camera_num}/frames/background_*.jpg")):
+        vid_frame = cv.imread(frame)
+        total_frames = total_frames + vid_frame.astype('float')
+    average_frame = total_frames / count
+    cv.imwrite(f"./data/cam{camera_num}/frames/background_avg2.jpg", average_frame)
+    cv.waitKey(0)
+    #     #img = cv.imread(f"./data/cam{camera_num}/background_0.jpg")
+    #     img = cv.imread(image)
+    #     #gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    #     #print(gray.shape)
+    #     print(img.shape)
+    #     #Convert MxNx3 image into Kx3 where K=MxN
+    #     img2 = img.reshape((-1, 3))  # -1 reshape means, in this case MxN
+    #     print(img2.shape)
+    #     # covariance choices, full, tied, diag, spherical
+    #     gmm_model = GMM(n_components=2, covariance_type='full').fit(img2)  # tied works better than full
+    # print(gmm_model.means_)
+    # gmm_labels = gmm_model.predict(img2)
+    # sample = gmm_model.sample(1)
+    # print(sample)
+
+    # # Put numbers back to original shape so we can reconstruct segmented image
+    # original_shape = img.shape
+    # segmented = gmm_labels.reshape(original_shape[0], original_shape[1])
+    # #gray = cv.cvtColor(segmented, cv.COLOR_BGR2GRAY)
+    # #cv.imwrite(f"./data/cam{camera_num}/background_0_segtest.jpg", sample)
+
+
+def background_sub(camera_num):
+    vid_cap = cv.VideoCapture(fr".\data\cam{camera_num}\video.avi")
+    bg_ = cv.imread(f"./data/cam{camera_num}/background_avg2.jpg")
+
+    bg_static = cv.cvtColor(bg_, cv.COLOR_BGR2HSV)
+    while True:
+        ret, frame = vid_cap.read()
+        if not ret:
+            break
+        current_frame = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+        fg = np.abs(cv.subtract(bg_static, current_frame))
+
+        ret0, th0 = cv.threshold(fg, 80, 255, cv.THRESH_BINARY)
+
+        h, s, v = cv.split(th0)
+
+        blur_v = cv.GaussianBlur(v, (5, 5), 0)
+        blur_s = cv.GaussianBlur(s, (5, 5), 0)
+        blur_h = cv.GaussianBlur(h, (5, 5), 0)
+
+
+        # Threshold OTSU
+        ret1, th_v = cv.threshold(blur_v, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        ret1, th_s = cv.threshold(blur_s, 0, 0, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        ret1, th_h = cv.threshold(blur_h, 0, 0, cv.THRESH_BINARY + cv.THRESH_OTSU)
+
+        # # Adaptive mean thresholding
+        # th_v = cv.adaptiveThreshold(blur_v, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_s = cv.adaptiveThreshold(blur_s, 0, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_h = cv.adaptiveThreshold(blur_h, 0, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
+
+        #Adaptive gaussian thresholding
+        # th_v = cv.adaptiveThreshold(blur_v, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_s = cv.adaptiveThreshold(blur_s, 0, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
+        # th_h = cv.adaptiveThreshold(blur_h, 0, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
+
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+        morph_v = cv.morphologyEx(th_v, cv.MORPH_OPEN, kernel)
+
+        morph_v = cv.dilate(morph_v, kernel, iterations=5)
+        result_v = cv.bitwise_and(morph_v, morph_v, mask=th_v)
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+        morph_s = cv.morphologyEx(th_s, cv.MORPH_OPEN, kernel)
+
+        morph_s = cv.dilate(morph_s, kernel, iterations=5)
+        result_s = cv.bitwise_and(morph_s, morph_s, mask=th_s)
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+        morph_h = cv.morphologyEx(th_h, cv.MORPH_OPEN, kernel)
+
+        morph_h = cv.dilate(morph_h, kernel, iterations=5)
+        result_h = cv.bitwise_and(morph_h, morph_h, mask=th_h)
+
+        rec_img_dilated = cv.merge([result_h, result_s, result_v])
+        bgr_img = cv.cvtColor(rec_img_dilated, cv.COLOR_HSV2BGR)
+
+        cv.imshow('rec_img_dilated', rec_img_dilated)
+        cv.imshow('rec_img_BGR', bgr_img)
+
+        k = cv.waitKey(30) & 0xff
+        if k == 27:
+            break
+    vid_cap.release()
+    cv.destroyAllWindows()
 
 
 """
@@ -73,7 +240,7 @@ def run_offline(cam_number):
             imgpoints.append(corners_sub_pix)
             cv.drawChessboardCorners(img, chessboard, corners_sub_pix, ret)
             cv.imshow('img', img)
-            #cv.imwrite('./cam_' + str(cam_number) + '/corners/cornered_img_' + str(count) + '.jpg', img)
+            # cv.imwrite('./cam_' + str(cam_number) + '/corners/cornered_img_' + str(count) + '.jpg', img)
 
             cv.waitKey(2000)
         else:
@@ -82,7 +249,6 @@ def run_offline(cam_number):
             cv.imshow('img', img)
             cv.setMouseCallback('img', click_event, img)
             cv.waitKey(0)
-            #cv.imwrite('./cam_' + str(cam_number) + '/corners/cornered_img_' + str(count) + '.jpg', img)
 
     cv.destroyAllWindows()
     ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
@@ -106,7 +272,6 @@ def save_params(cam_number, ret, mtx, dist, rvecs, tvecs):
     np.save(f'./data/cam{cam_number}/params/tvecs.npy', tvecs)
 
 
-
 """
 The following function tracks the click events and plots the coordinates of the points clicked on the image.
 """
@@ -121,7 +286,7 @@ def click_event(event, x, y, flags, params):
         if len(click_coordinates) < 4:
             cv.putText(params, str(x) + ',' +
                        str(y), (x, y), font,
-                       1, (255, 0, 0), 2)
+                       0.2, (255, 0, 0), 1)
             cv.imshow('img', params)
             click_coordinates.append([x, y])
         if len(click_coordinates) == 4:
@@ -144,6 +309,9 @@ def transform_image(img):
     corners = np.float32(warp)
     # By using cornerSubPix we are able to find potitions of the corners more accurately
     corners_sub_pix = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+    sub_pix = np.array(corners_sub_pix, np.float32)
+    np.save(f'./sub_pix.npy', sub_pix)
+
     objpoints.append(objp)
     imgpoints.append(np.float32(corners_sub_pix))
     cv.drawChessboardCorners(img, chessboard, corners_sub_pix, True)
