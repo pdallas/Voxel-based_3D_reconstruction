@@ -4,18 +4,11 @@ import cv2 as cv
 import numpy as np
 
 block_size = 1.0
-w = 8
-h = 6
-prevForeground = [None for _ in range(4)]
-lookup = None
 cols = [0, 0, 0, 0]
 
 
 def generate_grid(width, depth):
     # Generates the floor grid locations
-    # You don't need to edit this function
-    width = 160
-    depth = 200
     data, colors = [], []
     for x in range(width):
         for z in range(depth):
@@ -56,65 +49,45 @@ def compare_with_fg(pts, i, fg):
     cols[i] = final_array
     return cols
 
-def set_voxel_positions(width, height, depth):
-    # Generates random voxel locations
-    global prevForeground, lookup
-    width = 16
-    height = 8
-    depth = 16
 
-    voxel_size = 0.2
-    data0 = []
+def set_voxel_positions(width, height, depth):
+    data = []
     colors = []
+    final_data = []
+    frame = cv.imread('./data/cam2/video.jpg')
 
     for x in np.linspace(0, 16, num=100):
         for y in np.linspace(0, 16, num=100):
             for z in np.linspace(0, 16, num=100):
-                data0.append([x, y, z])
-    data0 = np.array(data0)
+                data.append([x, y, z])
+    data = np.array(data)
 
-    # first frame, compute lookup table
     for i in range(4):
-        print(i)
         cam_params = init_cam_params(i + 1)
-
-        pts, _ = cv.projectPoints(data0, cam_params[2], cam_params[3], cam_params[0], cam_params[1])
-       # for j in range(len(data0)):
+        pts, _ = cv.projectPoints(data, cam_params[2], cam_params[3], cam_params[0], cam_params[1])
         pts = np.int32(pts)
-        flags = compare_with_fg(pts, i, cam_params[4])
+        values = compare_with_fg(pts, i, cam_params[4])
 
+    final_values = np.zeros(len(data))
+    for i in range(len(data)):
+        for j in range(len(values)):
+            final_values[i] += values[j][0][i][1]
 
-    cv.destroyAllWindows()
-
-    data = []
-    columnSum = np.zeros(len(data0))
-
-
-    for i in range(len(data0)):
-        for j in range(len(flags)):
-            columnSum[i] += flags[j][0][i][1]
-
-    clip = cv.imread('./data/cam2/video.jpg')
-    # if voxels in all views are visible, show it on the screen
-    for i in range(len(data0)):
-        if columnSum[i] == 4:
-            data.append(data0[i])
-            # color.append(colorsVox[i])
-            colors.append(clip[flags[1][0][i][0][0]][flags[1][0][i][0][1]] / 256)
+    for i in range(len(data)):
+        if final_values[i] == 4:
+            final_data.append(data[i])
+            colors.append(frame[values[1][0][i][0][0]][values[1][0][i][0][1]] / 256)
 
     r_x = np.array([[1, 0, 0],
-                   [0, 0, 1],
-                   [0, -1, 0]])
+                    [0, 0, 1],
+                    [0, -1, 0]])
     r_y_1 = np.array([[0, 0, 1],
-                   [0, 1, 0],
-                   [-1, 0, 0]])
+                      [0, 1, 0],
+                      [-1, 0, 0]])
     r_y_2 = np.array([[0, 0, 1],
-                   [0, 1, 0],
-                   [-1, 0, 0]])
-    final_m = np.array([[6, 0, 0],
-                   [0, 6, 0],
-                   [0, 0, 6]])
-    r_x_1 = [r_x.dot(p) for p in data]
+                      [0, 1, 0],
+                      [-1, 0, 0]])
+    r_x_1 = [r_x.dot(p) for p in final_data]
     r_y_1_ = [r_y_1.dot(y) for y in r_x_1]
     r_y_2_ = [r_y_2.dot(y) for y in r_y_1_]
     final = [np.multiply(m, 3) for m in r_y_2_]
