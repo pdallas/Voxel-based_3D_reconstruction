@@ -40,12 +40,12 @@ def extrinsics(cam_number):
 
 
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
-    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2) * cube_stride
+    objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
     # extract the extrinsic parameters
     ret, rvec, tvec = cv.solvePnP(objp, corners, mtx, dist)
-    # R, _ = cv.Rodrigues(rvec)  # change rotation vector to matrix
-    # T, _ = cv.Rodrigues(tvec)  # change translation vector to matrix
+    R, _ = cv.Rodrigues(rvec)  # change rotation vector to matrix
+    T, _ = cv.Rodrigues(tvec)  # change translation vector to matrix
 
     fs = cv.FileStorage(f'./data/cam{cam_number}/config.xml', cv.FILE_STORAGE_WRITE)
     fs.write("mtx", mtx)
@@ -55,7 +55,7 @@ def extrinsics(cam_number):
 
 
     img = cv.imread(f'./data/cam{cam_number}/board.jpg')
-    pts = np.float32([[0, 0, 0], [100, 0, 0], [0, 100, 0], [0, 0, 100]])
+    pts = np.float32([[0, 0, 0], [5, 0, 0], [0, 5, 0], [0, 0, 5]])
     image_pts, _ = cv.projectPoints(pts, rvec, tvec, mtx, dist)
 
     image_pts = np.int32(image_pts).reshape(-1, 2)
@@ -208,7 +208,7 @@ def background_sub(camera_num):
         fg_mask = cv.bitwise_or(result_v, fg_s_v)
 
         res = cv.bitwise_and(frame, frame, mask=fg_mask)
-        cv.imwrite(f'./data/cam{camera_num}/forground.jpg', fg_mask)
+        cv.imwrite(f'./data/cam{camera_num}/foreground.jpg', fg_mask)
         cv.imwrite(f'./data/cam{camera_num}/horseman_frame.jpg', res)
 
 
