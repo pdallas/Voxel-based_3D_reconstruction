@@ -24,17 +24,6 @@ def generate_grid(width, depth):
     return data, colors
 
 
-# def get_cam_rotation_matrices():
-#     # Generates dummy camera rotation matrices, looking down 45 degrees towards the center of the room
-#     # TODO: You need to input the estimated camera rotation matrices (4x4) of the 4 cameras in the world coordinates.
-#     cam_angles = [[0, 45, -45], [0, 135, -45], [0, 225, -45], [0, 315, -45]]
-#     cam_rotations = [glm.mat4(1), glm.mat4(1), glm.mat4(1), glm.mat4(1)]
-#     for c in range(len(cam_rotations)):
-#         cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][0] * np.pi / 180, [1, 0, 0])
-#         cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][1] * np.pi / 180, [0, 1, 0])
-#         cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][2] * np.pi / 180, [0, 0, 1])
-#     return cam_rotations
-
 def init_cam_params(cam_no):
     fg = cv.imread(f'./data/cam{cam_no}/foreground.jpg')
     config = cv.FileStorage(f'./data/cam{cam_no}/config.xml', cv.FILE_STORAGE_READ)
@@ -135,63 +124,27 @@ def set_voxel_positions(width, height, depth):
 
 def get_cam_positions():
     # Generates dummy camera locations at the 4 corners of the room
-    # TODO: You need to input the estimated locations of the 4 cameras in the world coordinates.
     cam_position = []
     for i in range(4):
-        fs = cv.FileStorage('./data/cam{}/config.xml'.format(i + 1), cv.FILE_STORAGE_READ)
-        tvec = fs.getNode('tvec').mat()
-        rvec = fs.getNode('rvec').mat()
-        R, _ = cv.Rodrigues(rvec)
-        R_inv = R.T
-        position = -R_inv.dot(tvec)  # get camera position
-        # get camera position in voxel space units(swap the y and z coordinates)
-        Vposition = np.array([position[0] * 3, position[2] * 3, position[1] * 3])
-        # Vposition /= 1.8
-        cam_position.append(Vposition)
+        fs = cv.FileStorage(f'./data/cam{i+1}/config.xml', cv.FILE_STORAGE_READ)
+        rotation_matrix, _ = cv.Rodrigues(fs.getNode('rvec').mat())
+        camera_position = -rotation_matrix.T.dot(fs.getNode('tvec').mat())
+        final_position = [camera_position[0] * 4, camera_position[2] * 4, camera_position[1] * 4]
+        cam_position.append(final_position)
         color = [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0], [1.0, 1.0, 0]]
     return cam_position, color
 
 
 def get_cam_rotation_matrices():
     # Generates dummy camera rotation matrices, looking down 45 degrees towards the center of the room
-    # TODO: You need to input the estimated camera rotation matrices (4x4) of the 4 cameras in the world coordinates.
-    # cam_angles = [[0, 45, -45], [0, 135, -45], [0, 225, -45], [0, 315, -45]]
-    # cam_rotations = [glm.mat4(1), glm.mat4(1), glm.mat4(1), glm.mat4(1)]
-    # for c in range(len(cam_rotations)):
-    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][0] * np.pi / 180, [1, 0, 0])
-    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][1] * np.pi / 180, [0, 1, 0])
-    #     cam_rotations[c] = glm.rotate(cam_rotations[c], cam_angles[c][2] * np.pi / 180, [0, 0, 1])
-
     cam_rotations = []
-    # for i in range(4):
-    #     fs = cv.FileStorage('./data/cam{}/config.xml'.format(i + 1), cv.FILE_STORAGE_READ)
-    #     rvec = fs.getNode('rvec').mat()
-    #     rotationMatrix = cv.Rodrigues(np.array(rvec).astype(np.float32))[0]
-    #     # calculate the camera matrices
-    #     rotationMatrix = rotationMatrix.transpose()
-    #     rotationMatrix = [rotationMatrix[0], rotationMatrix[2], rotationMatrix[1]]
-    #     cam_rotations.append(glm.mat4(np.matrix(rotationMatrix).T))
-    # print("F:")
-    # print(cam_rotations)
-    #
-    # for c in range(len(cam_rotations)):
-    #     # transform from radians to degrees.
-    #     cam_rotations[c] = glm.rotate(cam_rotations[c], -np.pi / 2, [0, 1, 0])
     for i in range(4):
-        fs = cv.FileStorage('./data/cam{}/config.xml'.format(i + 1), cv.FILE_STORAGE_READ)
-        rvec = fs.getNode('rvec').mat()
-        R, _ = cv.Rodrigues(rvec)
+        fs = cv.FileStorage(f'./data/cam{i+1}/config.xml', cv.FILE_STORAGE_READ)
+        rotation_matrix, _ = cv.Rodrigues(fs.getNode('rvec').mat())
+        rotation_matrix_1 = rotation_matrix[:, [0, 2, 1]]
+        rotation_matrix_1[1, :] *= -1
+        final_rotation_matrix = np.eye(4)
+        final_rotation_matrix[:3, :3] = np.matmul(rotation_matrix_1, np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]]))
+        cam_rotations.append(glm.mat4(*final_rotation_matrix.flatten()))
 
-        R[:, 1], R[:, 2] = R[:, 2], R[:, 1].copy()  # swap y and z (exchange the second and third columns)
-        R[1, :] = -R[1, :]  # invert rotation on y (multiply second row by -1)
-        # rotation matrix: rotation 90 degree about the y
-        rot = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])
-        R = np.matmul(R, rot)
-
-        # convert to mat4x4 format
-        RM = np.eye(4)
-        RM[:3, :3] = R
-        RM = glm.mat4(*RM.flatten())
-        cam_rotations.append(RM)
-    # print(cam_rotations)
     return cam_rotations
