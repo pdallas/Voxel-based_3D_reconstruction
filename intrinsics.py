@@ -30,7 +30,6 @@ click_coordinates = []
 
 
 def extrinsics(cam_number):
-
     data = np.load(f'data/cam{cam_number}/sub_pix.npy')
     corners = np.array(data)
 
@@ -38,21 +37,17 @@ def extrinsics(cam_number):
     mtx = fs.getNode('mtx').mat()
     dist = fs.getNode('dist').mat()
 
-
     objp = np.zeros((chessboard[0] * chessboard[1], 3), np.float32)
     objp[:, :2] = np.mgrid[0:chessboard[0], 0:chessboard[1]].T.reshape(-1, 2)
 
     # extract the extrinsic parameters
     ret, rvec, tvec = cv.solvePnP(objp, corners, mtx, dist)
-    R, _ = cv.Rodrigues(rvec)  # change rotation vector to matrix
-    T, _ = cv.Rodrigues(tvec)  # change translation vector to matrix
 
     fs = cv.FileStorage(f'./data/cam{cam_number}/config.xml', cv.FILE_STORAGE_WRITE)
     fs.write("mtx", mtx)
     fs.write("dist", dist)
     fs.write("rvec", rvec)
     fs.write("tvec", tvec)
-
 
     img = cv.imread(f'./data/cam{cam_number}/board.jpg')
     pts = np.float32([[0, 0, 0], [5, 0, 0], [0, 5, 0], [0, 0, 5]])
@@ -91,6 +86,14 @@ def extract_frames(cam_number, frames_to_extract, filename):
     return True
 
 
+"""
+Firstly, the images are loaded (for each run)
+Then, we try to find the Chessboard corners by using the opencv function 'findChessboardCorners'.
+If the algorithm is not able to determine the corners, the user then has to provide manually all 4 chessboard corners
+In the end, we calibrate the camera based on the Object points and Image points that we obtain based on the flow that is described above.
+"""
+
+
 def manual_corners(cam_number):
     images = glob.glob('./data/cam' + str(cam_number) + '/board.jpg')
     for count, fname in enumerate(images):
@@ -118,6 +121,12 @@ def manual_corners(cam_number):
 
 
 # TODO; Fix GMM model for the background frame selection
+
+"""
+The following function creates a model by averaging the frames that were extracted in extractFrames().
+"""
+
+
 def background_model(camera_num):
     total_frames = 0
     for count, frame in enumerate(glob.glob(f"./data/cam{camera_num}/background_frames/*.jpg")):
@@ -146,6 +155,11 @@ def background_model(camera_num):
     # segmented = gmm_labels.reshape(original_shape[0], original_shape[1])
     # #gray = cv.cvtColor(segmented, cv.COLOR_BGR2GRAY)
     # #cv.imwrite(f"./data/cam{camera_num}/background_0_segtest.jpg", sample)
+
+"""
+The following function subtracts the foreground from the image for each camera, by using different types of threshold 
+techniques and by applying morphological approaches such as dilation
+"""
 
 
 def background_sub(camera_num):
@@ -179,7 +193,7 @@ def background_sub(camera_num):
         # th_s = cv.adaptiveThreshold(blur_s, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
         # th_h = cv.adaptiveThreshold(blur_h, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 11, 2)
 
-        #Adaptive gaussian thresholding
+        # Adaptive gaussian thresholding
         # th_v = cv.adaptiveThreshold(blur_v, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
         # th_s = cv.adaptiveThreshold(blur_s, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
         # th_h = cv.adaptiveThreshold(blur_h, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2)
@@ -189,7 +203,6 @@ def background_sub(camera_num):
         morph_v = cv.morphologyEx(th_v, cv.MORPH_OPEN, kernel)
         morph_v = cv.dilate(morph_v, kernel, iterations=5)
         result_v = cv.bitwise_and(morph_v, morph_v, mask=th_v)
-
 
         # Channel H
         kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (6, 6))
@@ -211,9 +224,8 @@ def background_sub(camera_num):
         cv.imwrite(f'./data/cam{camera_num}/foreground.jpg', fg_mask)
         cv.imwrite(f'./data/cam{camera_num}/horseman_frame.jpg', res)
 
-
-        #rec_img_dilated = cv.merge([result_h, result_s, result_v])
-        #bgr_img = cv.cvtColor(rec_img_dilated, cv.COLOR_HSV2BGR)
+        # rec_img_dilated = cv.merge([result_h, result_s, result_v])
+        # bgr_img = cv.cvtColor(rec_img_dilated, cv.COLOR_HSV2BGR)
 
         cv.imshow('Current frame with forground mask applied', res)
         cv.imshow('Forground mask', fg_mask)
@@ -229,7 +241,7 @@ def background_sub(camera_num):
 The following function is the implementation of the offline phase of the assignment
 Firstly, the images are loaded (for each run)
 Then, we try to find the Chessboard corners by using the opencv function 'findChessboardCorners'.
-If the algorithm is not able to determine the corners, the user then has to provide manually all 4 chessboard corners
+If the algorithm is not able to determine the corners, the frame is skipped
 In the end, we calibrate the camera based on the Object points and Image points that we obtain based on the flow that is described above.
 """
 
@@ -251,12 +263,6 @@ def run_offline(cam_number):
             cv.imshow('img', img)
 
             cv.waitKey(2000)
-        # else:
-        #     # Corners not found, manually request corners
-        #     print(f'Did not find corners for file: {fname}')
-        #     cv.imshow('img', img)
-        #     cv.setMouseCallback('img', click_event, img)
-        #     cv.waitKey(0)
 
     cv.destroyAllWindows()
     ret, mtx, dist, rvecs, tvecs = cv.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
