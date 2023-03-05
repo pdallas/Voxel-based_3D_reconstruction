@@ -94,7 +94,7 @@ def set_voxel_positions(width, height, depth):
         for j in range(len(flags)):
             columnSum[i] += flags[j][0][i][1]
 
-    clip = cv.imread('./data/cam{}/horseman_frame.jpg'.format(2))
+    clip = cv.imread('./data/cam2/video.jpg')
     # if voxels in all views are visible, show it on the screen
     for i in range(len(data0)):
         if columnSum[i] == 4:
